@@ -47,7 +47,7 @@ Resources:
 
   GatoStage:
     Type: AWS::ApiGatewayV2::Stage
-    DependsOn: [ConnectRoute, DisconnectRoute, JoinRoute, MoveRoute]
+    DependsOn: [ConnectRoute, DisconnectRoute, JoinRoute, MoveRoute, RematchRoute, EmoteRoute]
     Properties:
       ApiId: !Ref GatoApi
       StageName: lab
@@ -177,6 +177,70 @@ Resources:
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Ref MoveFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
+
+  # rematch (reto extra)
+  RematchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: rematch.handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref GamesTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ConnectionsTable }
+        - Statement:
+            - Effect: Allow
+              Action: execute-api:ManageConnections
+              Resource: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
+  RematchIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref GatoApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RematchFunction.Arn}/invocations
+  RematchRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref GatoApi
+      RouteKey: rematch
+      Target: !Sub integrations/${RematchIntegration}
+  RematchPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref RematchFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
+
+  # emote (reto extra)
+  EmoteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: emote.handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref GamesTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ConnectionsTable }
+        - Statement:
+            - Effect: Allow
+              Action: execute-api:ManageConnections
+              Resource: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
+  EmoteIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref GatoApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${EmoteFunction.Arn}/invocations
+  EmoteRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref GatoApi
+      RouteKey: emote
+      Target: !Sub integrations/${EmoteIntegration}
+  EmotePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref EmoteFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
 

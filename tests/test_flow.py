@@ -129,3 +129,24 @@ def test_gone_connection_is_cleaned_up(lab):
     assert common.get_connection("co") is None
     assert common.get_game("ROOM2").get("player_o") is None
 
+
+def test_retos_rematch_and_emote(lab):
+    m, socket = lab
+    rematch = importlib.reload(importlib.import_module("rematch"))
+    emote = importlib.reload(importlib.import_module("emote"))
+    for mod in (rematch, emote):
+        mod.ws_client = lambda event: socket
+
+    m["connect"].handler(event("cx", "ROOM3"), None)
+    m["connect"].handler(event("co", "ROOM3"), None)
+    assert rematch.handler(event("cx", body={"action": "rematch"}), None)["statusCode"] == 400
+
+    for conn, cell in [("cx", 0), ("co", 3), ("cx", 1), ("co", 4), ("cx", 2)]:
+        m["move"].handler(event(conn, body={"action": "move", "cell": cell}), None)
+    assert rematch.handler(event("co", body={"action": "rematch"}), None)["statusCode"] == 200
+    assert socket.last("cx")["board"] == "_________"
+    assert socket.last("cx")["turn"] == "O"  # ganó X, abre O
+
+    emote.handler(event("co", body={"action": "emote", "emoji": "🔥"}), None)
+    assert socket.last("cx") == {"type": "emote", "emoji": "🔥", "from": "O"}
+    assert emote.handler(event("co", body={"action": "emote", "emoji": "💣"}), None)["statusCode"] == 400
