@@ -17,9 +17,7 @@ def handler(event, context):
     client = ws_client(event)
 
     # 1. ¿De qué sala es esta conexión?
-    # TODO 1: busca la conexión en la tabla Connections.
-    #         Pista: get_connection(connection_id) regresa {"room": ..., "seat": ...} o None
-    connection = None
+    connection = get_connection(connection_id)
     if connection is None:
         return {"statusCode": 403}
 
@@ -36,13 +34,16 @@ def handler(event, context):
         return {"statusCode": 400}
 
     # 3. Enviamos el nuevo estado a los dos jugadores
-    # TODO 2: por cada jugador de la sala, envíale el estado con post_to_connection.
-    #   - Sus conexiones están en updated["player_x"] y updated["player_o"]
-    #   - Cada uno recibe su propia versión: state_for(updated, "X") o state_for(updated, "O")
-    #   - Envía así: client.post_to_connection(ConnectionId=..., Data=to_bytes(mensaje))
-    #   Pista: join.py hace algo muy parecido.
-    #
-    # TODO 3: si post_to_connection lanza client.exceptions.GoneException,
-    #         esa conexión ya se cerró: límpiala con remove_connection(...)
+    for seat, seat_key in (("X", "player_x"), ("O", "player_o")):
+        player_connection = updated.get(seat_key)
+        if not player_connection:
+            continue
+        try:
+            client.post_to_connection(
+                ConnectionId=player_connection,
+                Data=to_bytes(state_for(updated, seat)),
+            )
+        except client.exceptions.GoneException:
+            remove_connection(player_connection)
 
     return {"statusCode": 200}
