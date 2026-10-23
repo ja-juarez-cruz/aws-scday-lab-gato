@@ -1,0 +1,186 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: SCDay lab - Gato multijugador con API Gateway WebSocket, Lambda y DynamoDB
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures: [arm64]
+    CodeUri: src/
+    MemorySize: 256
+    Timeout: 10
+    Environment:
+      Variables:
+        GAMES_TABLE: !Ref GamesTable
+        CONNECTIONS_TABLE: !Ref ConnectionsTable
+
+Resources:
+  # ── Datos ──────────────────────────────────────────────────────────────────
+  GamesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: room, AttributeType: S }
+      KeySchema:
+        - { AttributeName: room, KeyType: HASH }
+      TimeToLiveSpecification: { AttributeName: expires_at, Enabled: true }
+
+  ConnectionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: connection_id, AttributeType: S }
+      KeySchema:
+        - { AttributeName: connection_id, KeyType: HASH }
+      TimeToLiveSpecification: { AttributeName: expires_at, Enabled: true }
+
+  # ── API WebSocket ──────────────────────────────────────────────────────────
+  GatoApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub ${AWS::StackName}-ws
+      ProtocolType: WEBSOCKET
+      # El campo "action" del JSON decide qué ruta (y qué Lambda) atiende el mensaje
+      RouteSelectionExpression: $request.body.action
+
+  GatoStage:
+    Type: AWS::ApiGatewayV2::Stage
+    DependsOn: [ConnectRoute, DisconnectRoute, JoinRoute, MoveRoute]
+    Properties:
+      ApiId: !Ref GatoApi
+      StageName: lab
+      AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingRateLimit: 20
+        ThrottlingBurstLimit: 50
+
+  # $connect
+  ConnectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: connect.handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref GamesTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ConnectionsTable }
+  ConnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref GatoApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConnectFunction.Arn}/invocations
+  ConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref GatoApi
+      RouteKey: $connect
+      Target: !Sub integrations/${ConnectIntegration}
+  ConnectPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ConnectFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
+
+  # $disconnect
+  DisconnectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: disconnect.handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref GamesTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ConnectionsTable }
+        - Statement:
+            - Effect: Allow
+              Action: execute-api:ManageConnections
+              Resource: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
+  DisconnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref GatoApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DisconnectFunction.Arn}/invocations
+  DisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref GatoApi
+      RouteKey: $disconnect
+      Target: !Sub integrations/${DisconnectIntegration}
+  DisconnectPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref DisconnectFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
+
+  # join
+  JoinFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: join.handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref GamesTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ConnectionsTable }
+        - Statement:
+            - Effect: Allow
+              Action: execute-api:ManageConnections
+              Resource: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
+  JoinIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref GatoApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${JoinFunction.Arn}/invocations
+  JoinRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref GatoApi
+      RouteKey: join
+      Target: !Sub integrations/${JoinIntegration}
+  JoinPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref JoinFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
+
+  # move
+  MoveFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: move.handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref GamesTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ConnectionsTable }
+        - Statement:
+            - Effect: Allow
+              Action: execute-api:ManageConnections
+              Resource: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
+  MoveIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref GatoApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MoveFunction.Arn}/invocations
+  MoveRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref GatoApi
+      RouteKey: move
+      Target: !Sub integrations/${MoveIntegration}
+  MovePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref MoveFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
+
+Outputs:
+  WebSocketUrl:
+    Description: URL del WebSocket (pégala en el parámetro ?ws= del frontend)
+    Value: !Sub wss://${GatoApi}.execute-api.${AWS::Region}.amazonaws.com/${GatoStage}

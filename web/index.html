@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gato en tiempo real</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>#</text></svg>">
+  <style>
+    :root {
+      --bg: #f6f7fb; --card: #ffffff; --text: #1d2130; --muted: #646b80; --line: #dfe3ee;
+      --x: #e4572e; --o: #2e86ab; --ok: #2a9d62; --warn: #c9541a; --code: #f0f2f8;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #12141c; --card: #1b1f2b; --text: #e8eaf2; --muted: #9aa1b5; --line: #2c3243;
+        --x: #ff7a52; --o: #5ab8e0; --ok: #4cc58a; --warn: #ff9b62; --code: #151924;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    main { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { margin: 0 0 4px; font-size: 1.6rem; }
+    .sub { margin: 0 0 20px; color: var(--muted); }
+    .layout { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
+    @media (min-width: 820px) { .layout { grid-template-columns: 380px minmax(0, 1fr); } }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+    .card h2 { margin: 0 0 12px; font-size: 1rem; color: var(--muted); font-weight: 600; }
+    .status { font-size: 1.15rem; font-weight: 600; min-height: 1.8em; }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 16px; font-size: .9rem; color: var(--muted); }
+    .pill { border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; }
+    .board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 340px; margin: 0 auto; }
+    .cell {
+      aspect-ratio: 1; border: 1px solid var(--line); border-radius: 12px; background: var(--bg);
+      font: 700 clamp(2rem, 12vw, 3.4rem)/1 system-ui, sans-serif; color: var(--text); cursor: pointer;
+    }
+    .cell:disabled { cursor: default; }
+    .cell.X { color: var(--x); } .cell.O { color: var(--o); }
+    .cell:not(:disabled):hover { border-color: var(--muted); }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    button.btn {
+      border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 10px;
+      padding: 8px 12px; font: inherit; cursor: pointer;
+    }
+    button.btn:hover { border-color: var(--muted); }
+    .emotes button.btn { font-size: 1.3rem; padding: 4px 10px; }
+    .floating { position: fixed; bottom: 30%; font-size: 3rem; pointer-events: none; animation: float 2s ease-out forwards; }
+    @keyframes float { to { transform: translateY(-200px); opacity: 0; } }
+    .log { height: 460px; overflow-y: auto; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code); border-radius: 10px; padding: 10px; }
+    .log div { padding: 3px 0; border-bottom: 1px dashed var(--line); overflow-wrap: anywhere; }
+    .log .out { color: var(--x); } .log .in { color: var(--o); } .log .sys { color: var(--muted); }
+    .hint { color: var(--muted); font-size: .85rem; margin-top: 8px; }
+    form { display: grid; gap: 10px; }
+    input { font: inherit; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); width: 100%; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Gato en tiempo real</h1>
+  <p class="sub">API Gateway WebSocket + AWS Lambda + DynamoDB</p>
+
+  <!-- Si no viene ?ws= en la URL, pedimos la URL del backend -->
+  <section id="setup" class="card hidden">
+    <h2>Conecta tu backend</h2>
+    <form id="setup-form">
+      <input id="ws-input" placeholder="wss://xxxx.execute-api.us-east-1.amazonaws.com/lab" required>
+      <input id="room-input" placeholder="Sala (opcional, ej. ABCD)">
+      <button class="btn" type="submit">Jugar</button>
+    </form>
+    <p class="hint">La URL sale de <code>sam deploy</code> (output <code>WebSocketUrl</code>).</p>
+  </section>
+
+  <div id="game" class="layout hidden">
+    <section class="card">
+      <h2>Partida</h2>
+      <div id="status" class="status">Conectando…</div>
+      <div class="meta">
+        <span class="pill">Sala <strong id="room-label"></strong></span>
+        <span class="pill">Tú: <strong id="you-label">—</strong></span>
+        <span class="pill">Jugadores: <strong id="players-label">0</strong>/2</span>
+      </div>
+      <div id="board" class="board"></div>
+      <div class="row">
+        <button id="share" class="btn" type="button">Copiar link para tu rival</button>
+        <button id="rematch" class="btn hidden" type="button">Revancha</button>
+      </div>
+      <div class="row emotes" id="emotes"></div>
+      <p class="hint">Revancha y emotes son retos extra: funcionan cuando agregas sus rutas al backend.</p>
+    </section>
+
+    <section class="card">
+      <h2>Mensajes del WebSocket <span class="hint">(↑ enviados · ↓ recibidos)</span></h2>
+      <div id="log" class="log"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+  const params = new URLSearchParams(location.search)
+  const $ = (id) => document.getElementById(id)
+
+  // ── Configuración desde la URL: ?ws=<url>&room=<sala> ─────────────────────
+  let wsUrl = params.get('ws')
+  let room = (params.get('room') || '').toUpperCase()
+
+  if (!wsUrl) {
+    $('setup').classList.remove('hidden')
+    $('setup-form').addEventListener('submit', (e) => {
+      e.preventDefault()
+      const next = new URLSearchParams({ ws: $('ws-input').value.trim() })
+      const r = $('room-input').value.trim()
+      if (r) next.set('room', r.toUpperCase())
+      location.search = next.toString()
+    })
+  } else {
+    if (!room) {
+      room = Math.random().toString(36).slice(2, 6).toUpperCase()
+      params.set('room', room)
+      history.replaceState(null, '', '?' + params.toString())
+    }
+    start()
+  }
+
+  // ── Juego ──────────────────────────────────────────────────────────────────
+  let socket
+  let state = { board: '_________', turn: 'X', winner: null, you: null, players: 0 }
+
+  function start() {
+    $('game').classList.remove('hidden')
+    $('room-label').textContent = room
+    renderBoard()
+    renderEmotes()
+
+    log('sys', `Conectando a ${wsUrl}?room=${room}`)
+    socket = new WebSocket(`${wsUrl}?room=${encodeURIComponent(room)}`)
+
+    socket.onopen = () => {
+      log('sys', 'Conexión abierta ($connect respondió 200)')
+      send({ action: 'join' })
+    }
+
+    socket.onmessage = (event) => {
+      log('in', event.data)
+      let msg
+      try { msg = JSON.parse(event.data) } catch { return }
+
+      if (msg.type === 'state') {
+        state = msg
+        render()
+      } else if (msg.type === 'error') {
+        setStatus(msg.message, 'warn')
+      } else if (msg.type === 'opponent_left') {
+        setStatus('Tu rival se fue. El tablero se reinició; comparte el link para que entre alguien más.', 'warn')
+        state = { ...state, board: '_________', turn: 'X', winner: null, players: 1 }
+        renderBoard()
+        $('players-label').textContent = 1
+      } else if (msg.type === 'emote') {
+        floatEmoji(msg.emoji)
+      }
+    }
+
+    socket.onclose = (event) => {
+      log('sys', `Conexión cerrada (código ${event.code})`)
+      if (!state.you) setStatus('No se pudo entrar: la sala está llena o la URL es incorrecta.', 'warn')
+      else setStatus('Desconectado. Recarga la página para volver a entrar.', 'warn')
+      document.querySelectorAll('.cell').forEach((c) => (c.disabled = true))
+    }
+  }
+
+  function send(data) {
+    if (socket?.readyState !== WebSocket.OPEN) return
+    const text = JSON.stringify(data)
+    log('out', text)
+    socket.send(text)
+  }
+
+  function render() {
+    $('you-label').textContent = state.you || '—'
+    $('players-label').textContent = state.players
+    $('rematch').classList.toggle('hidden', !state.winner)
+    renderBoard()
+
+    if (state.winner === 'draw') setStatus('¡Empate!')
+    else if (state.winner) setStatus(state.winner === state.you ? '¡Ganaste! 🎉' : 'Perdiste… ¿revancha?')
+    else if (state.players < 2) setStatus('Esperando a tu rival… comparte el link.')
+    else setStatus(state.turn === state.you ? 'Tu turno' : 'Turno de tu rival')
+  }
+
+  function renderBoard() {
+    const myTurn = state.players === 2 && !state.winner && state.turn === state.you
+    $('board').replaceChildren(...[...state.board].map((value, i) => {
+      const cell = document.createElement('button')
+      cell.className = 'cell' + (value !== '_' ? ' ' + value : '')
+      cell.textContent = value === '_' ? '' : value
+      cell.disabled = !myTurn || value !== '_'
+      cell.setAttribute('aria-label', `Casilla ${i + 1}`)
+      cell.onclick = () => send({ action: 'move', cell: i })
+      return cell
+    }))
+  }
+
+  function renderEmotes() {
+    $('emotes').replaceChildren(...['👏', '😂', '😱', '🔥'].map((emoji) => {
+      const b = document.createElement('button')
+      b.className = 'btn'
+      b.type = 'button'
+      b.textContent = emoji
+      b.onclick = throttle(() => send({ action: 'emote', emoji }), 1000)
+      return b
+    }))
+  }
+
+  $('rematch').onclick = () => send({ action: 'rematch' })
+  $('share').onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(location.href)
+      $('share').textContent = '¡Link copiado!'
+    } catch {
+      prompt('Copia este link:', location.href)
+    }
+    setTimeout(() => ($('share').textContent = 'Copiar link para tu rival'), 2000)
+  }
+
+  // ── Utilidades ─────────────────────────────────────────────────────────────
+  function setStatus(text, tone) {
+    $('status').textContent = text
+    $('status').style.color = tone === 'warn' ? 'var(--warn)' : ''
+  }
+
+  function log(kind, text) {
+    const line = document.createElement('div')
+    line.className = kind
+    const arrow = { out: '↑ ', in: '↓ ', sys: '· ' }[kind]
+    line.textContent = `${new Date().toLocaleTimeString()} ${arrow}${text}`
+    $('log').append(line)
+    $('log').scrollTop = $('log').scrollHeight
+  }
+
+  function floatEmoji(emoji) {
+    const el = document.createElement('div')
+    el.className = 'floating'
+    el.textContent = emoji
+    el.style.left = 10 + Math.random() * 80 + '%'
+    document.body.append(el)
+    setTimeout(() => el.remove(), 2000)
+  }
+
+  function throttle(fn, ms) {
+    let last = 0
+    return () => { const now = Date.now(); if (now - last >= ms) { last = now; fn() } }
+  }
+</script>
+</body>
+</html>
