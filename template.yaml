@@ -1,21 +1,39 @@
 AWSTemplateFormatVersion: "2010-09-09"
+# Esta línea convierte el archivo en una plantilla de SAM: permite usar AWS::Serverless::Function,
+# que es una forma corta de declarar una Lambda junto con su rol de IAM.
 Transform: AWS::Serverless-2016-10-31
 Description: SCDay lab - Gato multijugador con API Gateway WebSocket, Lambda y DynamoDB
 
+# Qué se crea, en resumen:
+#   - 2 tablas de DynamoDB: quién está conectado y cómo va cada partida.
+#   - 1 API de WebSocket con su stage "lab" (de ahí sale la URL wss://...).
+#   - Por cada ruta ($connect, $disconnect, join, move) se repiten 4 piezas:
+#       Function     la Lambda con el código de src/<ruta>.py
+#       Integration  le dice a API Gateway que esa ruta la atiende esa Lambda
+#       Route        el nombre de la ruta (el valor de "action" en el mensaje)
+#       Permission   autoriza a API Gateway a invocar esa Lambda
+
+# Valores que comparten todas las Lambdas, para no repetirlos en cada una
 Globals:
   Function:
     Runtime: python3.12
-    Architectures: [arm64]
-    CodeUri: src/
+    Architectures: [arm64]       # Graviton: más barato que x86 y el código es el mismo
+    CodeUri: src/                # todas usan la misma carpeta; cada una cambia solo su Handler
     MemorySize: 256
     Timeout: 10
     Environment:
       Variables:
+        # Los nombres reales de las tablas los genera CloudFormation; así el código los encuentra
         GAMES_TABLE: !Ref GamesTable
         CONNECTIONS_TABLE: !Ref ConnectionsTable
 
 Resources:
   # ── Datos ──────────────────────────────────────────────────────────────────
+  # Una Lambda no recuerda nada entre una invocación y otra, por eso el estado vive en DynamoDB.
+  # PAY_PER_REQUEST: se paga por lectura y escritura, sin capacidad reservada (cuesta $0 si nadie juega).
+  # TTL: DynamoDB borra solo los registros cuando pasa la fecha de "expires_at" (24 h).
+
+  # Una fila por sala: tablero, turno, quién es X, quién es O y quién ganó
   GamesTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -26,6 +44,8 @@ Resources:
         - { AttributeName: room, KeyType: HASH }
       TimeToLiveSpecification: { AttributeName: expires_at, Enabled: true }
 
+  # Una fila por conexión abierta: a qué sala pertenece y qué ficha tiene.
+  # Así, cuando llega un mensaje, sabemos de qué partida es solo con su connectionId.
   ConnectionsTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -37,6 +57,8 @@ Resources:
       TimeToLiveSpecification: { AttributeName: expires_at, Enabled: true }
 
   # ── API WebSocket ──────────────────────────────────────────────────────────
+  # A diferencia de una API REST, la conexión se queda abierta y el servidor puede enviar
+  # mensajes cuando quiera, sin que el navegador pregunte.
   GatoApi:
     Type: AWS::ApiGatewayV2::Api
     Properties:
@@ -45,37 +67,47 @@ Resources:
       # El campo "action" del JSON decide qué ruta (y qué Lambda) atiende el mensaje
       RouteSelectionExpression: $request.body.action
 
+  # La stage publica la API en una URL: wss://<id>.execute-api.<región>.amazonaws.com/lab
   GatoStage:
     Type: AWS::ApiGatewayV2::Stage
+    # Se crea después de las rutas, para que el primer despliegue ya las incluya.
+    # Cada ruta nueva (como las de los retos) se agrega aquí.
     DependsOn: [ConnectRoute, DisconnectRoute, JoinRoute, MoveRoute, RematchRoute, EmoteRoute]
     Properties:
       ApiId: !Ref GatoApi
       StageName: lab
+      # Cada vez que cambian las rutas, API Gateway publica la nueva versión solo
       AutoDeploy: true
+      # Límite de mensajes por segundo: protege tu cuenta si alguien manda mensajes sin parar
       DefaultRouteSettings:
         ThrottlingRateLimit: 20
         ThrottlingBurstLimit: 50
 
-  # $connect
+  # ── $connect: alguien abre el WebSocket ────────────────────────────────────
+  # Le asigna X u O en la sala del parámetro ?room=. Si la sala está llena, rechaza la conexión.
   ConnectFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: connect.handler
+      Handler: connect.handler   # archivo src/connect.py, función handler
+      # SAM crea un rol de IAM con estos permisos: solo leer y escribir en nuestras 2 tablas
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref GamesTable }
         - DynamoDBCrudPolicy: { TableName: !Ref ConnectionsTable }
+  # AWS_PROXY: API Gateway le pasa el evento completo a la Lambda tal cual
   ConnectIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref GatoApi
       IntegrationType: AWS_PROXY
       IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConnectFunction.Arn}/invocations
+  # $connect es una ruta especial: API Gateway la llama sola al abrirse la conexión
   ConnectRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref GatoApi
       RouteKey: $connect
       Target: !Sub integrations/${ConnectIntegration}
+  # Sin este permiso, la Lambda rechaza las invocaciones de API Gateway
   ConnectPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -84,7 +116,8 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
 
-  # $disconnect
+  # ── $disconnect: alguien cierra la pestaña o se cae su red ────────────────
+  # Libera su lugar, reinicia el tablero y le avisa al rival.
   DisconnectFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -92,6 +125,8 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref GamesTable }
         - DynamoDBCrudPolicy: { TableName: !Ref ConnectionsTable }
+        # ManageConnections: permite enviar mensajes a una conexión (post_to_connection).
+        # $connect no lo necesita porque ahí todavía no se puede enviar nada.
         - Statement:
             - Effect: Allow
               Action: execute-api:ManageConnections
@@ -102,6 +137,7 @@ Resources:
       ApiId: !Ref GatoApi
       IntegrationType: AWS_PROXY
       IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DisconnectFunction.Arn}/invocations
+  # $disconnect también es especial: API Gateway la llama sola al cerrarse la conexión
   DisconnectRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -116,7 +152,8 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
 
-  # join
+  # ── join: {"action":"join"} ────────────────────────────────────────────────
+  # Envía el estado de la sala a cada jugador. Es el ejemplo de broadcast que copias en el Lab 2.
   JoinFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -134,6 +171,7 @@ Resources:
       ApiId: !Ref GatoApi
       IntegrationType: AWS_PROXY
       IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${JoinFunction.Arn}/invocations
+  # Ruta normal: su RouteKey debe ser igual al "action" que envía el navegador
   JoinRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
@@ -148,7 +186,8 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
 
-  # move
+  # ── move: {"action":"move","cell":4} ───────────────────────────────────────
+  # Aplica la jugada y envía el nuevo estado a los dos jugadores (eso lo programas en el Lab 2).
   MoveFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -180,7 +219,8 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
 
-  # rematch (reto extra)
+  # ── Reto extra - rematch: {"action":"rematch"} ─────────────────────────────
+  # Reinicia el tablero cuando la partida terminó. Son las mismas 4 piezas que move.
   RematchFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -212,7 +252,8 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
 
-  # emote (reto extra)
+  # ── Reto extra - emote: {"action":"emote","emoji":"🔥"} ─────────────────────
+  # Reenvía un emoji a los dos jugadores. Es puro broadcast, sin reglas del juego.
   EmoteFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -244,6 +285,7 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
 
+# Lo que imprime `sam deploy` al terminar
 Outputs:
   WebSocketUrl:
     Description: URL del WebSocket (pégala en el parámetro ?ws= del frontend)
