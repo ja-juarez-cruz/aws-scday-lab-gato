@@ -90,34 +90,99 @@ Prueba también:
 
 ### 3.2 Juega desde el navegador
 
-Abre el frontend con la URL de tu WebSocket:
+Cierra las pestañas de wscat con `Ctrl+C` y, en CloudShell, genera el link del juego ya armado con **tu** WebSocket:
 
-```
-https://ja-juarez-cruz.github.io/aws-scday-lab-gato/web/?ws=<tu WebSocketUrl>
+```bash
+echo "https://ja-juarez-cruz.github.io/aws-scday-lab-gato/web/?ws=$WS_URL"
 ```
 
-Copia el link con el botón **"Copiar link para tu rival"** y ábrelo en otra laptop o celular.
-En el panel derecho ves cada mensaje que sale (↑) y entra (↓) por el socket.
+1. Abre ese link en tu navegador. Arriba verás la **Sala** (se genera sola) y "Jugadores: 1/2".
+2. Presiona **"Copiar link para tu rival"** y ábrelo en otra laptop, en un celular o en una ventana de incógnito.
+3. En las dos debe decir **"Jugadores: 2/2"**. En el panel derecho ves cada mensaje que sale (↑) y entra (↓) por el socket.
+
+> **Es normal que todavía no puedas jugar.** Si haces clic en una casilla, verás tu `↑ {"action":"move",...}` en el panel,
+> pero no llega ninguna respuesta: la Lambda `move` aún no le avisa a nadie. Eso es justo lo que programas en el Lab 2.
+
+Si dice *"No se pudo entrar"*, revisa que el link tenga **tu** `WebSocketUrl`: cada despliegue tiene una URL distinta.
+Si acabas de desplegar, espera 1 o 2 minutos y recarga.
 
 ## 4. Lab 2: haz que funcione en tiempo real
 
-Las jugadas no llegan a nadie. Abre `src/move.py` y completa los 3 TODOs:
+Las jugadas no llegan a nadie. Aquí **no** basta con correr comandos: vas a **escribir unas líneas de Python** en
+`src/move.py`, donde dice `TODO`. Los comentarios de los TODOs puedes dejarlos o borrarlos, da igual.
+
+### 4.1 Mira el ejemplo
+
+Abre `src/join.py`. Al final tiene un `for` que le envía el estado a cada jugador de la sala. Ese es el patrón del
+broadcast y lo vas a repetir en `move.py`:
 
 ```bash
-nano src/move.py        # o el editor que prefieras
+cat src/join.py
 ```
 
-| TODO | Qué hace | Pista |
-|---|---|---|
-| 1 | Averigua de qué sala es la conexión que envió el mensaje | `get_connection(connection_id)` |
-| 2 | Envía el nuevo estado a **los dos** jugadores, cada uno con su ficha en `you` | `join.py` hace algo muy parecido |
-| 3 | Si una conexión ya no existe (`GoneException`), límpiala | `remove_connection(...)` |
+### 4.2 Abre el archivo
 
-Despliega y prueba (solo cambia el código de la Lambda, tarda unos segundos):
+```bash
+nano src/move.py
+```
+
+En `nano` te mueves con las flechas, guardas con `Ctrl+O` y luego `Enter`, y sales con `Ctrl+X`.
+
+### 4.3 Completa los 3 TODOs
+
+| TODO | Qué hace | Qué escribes |
+|---|---|---|
+| 1 | Averigua de qué sala es la conexión que envió el mensaje | Cambia `connection = None` por `connection = get_connection(connection_id)` |
+| 2 | Envía el nuevo estado a **los dos** jugadores, cada uno con su ficha en `you` | Debajo del comentario del TODO 2, pega el `for` de `join.py` y cambia `game` por `updated` |
+| 3 | Si una conexión ya no existe (`GoneException`), límpiala | Ya viene en el `for` que copiaste (el `try` / `except`) |
+
+Cuida la **indentación**: en Python, el `for` debe quedar alineado con el `return` de abajo (4 espacios).
+
+<details>
+<summary>¿Te atoraste? Ver cómo debe quedar</summary>
+
+```python
+    # 1. ¿De qué sala es esta conexión?
+    connection = get_connection(connection_id)
+    if connection is None:
+        return {"statusCode": 403}
+
+    # ... (lo de en medio no cambia) ...
+
+    # 3. Enviamos el nuevo estado a los dos jugadores
+    for seat, seat_key in (("X", "player_x"), ("O", "player_o")):
+        player_connection = updated.get(seat_key)
+        if not player_connection:
+            continue
+        try:
+            client.post_to_connection(
+                ConnectionId=player_connection,
+                Data=to_bytes(state_for(updated, seat)),
+            )
+        except client.exceptions.GoneException:
+            remove_connection(player_connection)
+
+    return {"statusCode": 200}
+```
+
+</details>
+
+### 4.4 Revisa, despliega y prueba
+
+Antes de desplegar, revisa que no haya errores de sintaxis (si no imprime nada, está bien):
+
+```bash
+python3 -m py_compile src/move.py
+```
+
+Despliega. Solo cambia el código de la Lambda, así que tarda menos de un minuto:
 
 ```bash
 sam deploy
 ```
+
+**Recarga las dos ventanas del juego** y juega: ahora cada jugada aparece en las dos, y en el panel ves el `↓ state`
+que le llega a cada una.
 
 Para ver los logs de tu Lambda mientras juegas:
 
