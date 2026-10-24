@@ -102,6 +102,10 @@
   const params = new URLSearchParams(location.search)
   const $ = (id) => document.getElementById(id)
 
+  // Estado del juego: se declara antes de llamar a start()
+  let socket
+  let state = { board: '_________', turn: 'X', winner: null, you: null, players: 0 }
+
   // ── Configuración desde la URL: ?ws=<url>&room=<sala> ─────────────────────
   let wsUrl = params.get('ws')
   let room = (params.get('room') || '').toUpperCase()
@@ -125,9 +129,6 @@
   }
 
   // ── Juego ──────────────────────────────────────────────────────────────────
-  let socket
-  let state = { board: '_________', turn: 'X', winner: null, you: null, players: 0 }
-
   function start() {
     $('game').classList.remove('hidden')
     $('room-label').textContent = room
