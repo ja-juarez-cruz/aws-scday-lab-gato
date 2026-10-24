@@ -108,7 +108,9 @@ Escribe también `{"action":"join"}`. Ahora mira **las dos** pestañas:
 Prueba también (hazlo en menos de 10 minutos, ver la nota de abajo):
 - Abrir una **tercera** conexión a la misma sala: `$connect` la rechaza (`Unexpected server response: 403`) porque la sala está llena.
 - Enviar `{"action":"move","cell":4}`: ¿pasa algo? Ese es el Lab 2.
-- Cerrar la pestaña 2 con `Ctrl+C`: la pestaña 1 recibe `{"type":"opponent_left"}` gracias a `$disconnect`.
+- En la pestaña 2 presiona `Ctrl+C`: la pestaña 1 recibe `{"type":"opponent_left"}` gracias a `$disconnect`.
+  Usa `Ctrl+C`, **no cierres la pestaña**: CloudShell sigue ejecutando wscat aunque cierres la pestaña, y la
+  conexión sigue abierta hasta que API Gateway la cierra por inactividad.
 
 > **`Disconnected (code: 1001, reason: "Going away")`.** API Gateway cierra las conexiones que pasan
 > **10 minutos sin mensajes**. Es un límite del servicio, no un error tuyo. Vuelve a conectar con el mismo
