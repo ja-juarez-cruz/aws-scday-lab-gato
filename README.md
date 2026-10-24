@@ -46,8 +46,8 @@ CloudShell ya trae AWS CLI, SAM CLI, git, Python y Node.js: no instalas nada.
 ## 2. Clona el repo
 
 ```bash
-git clone https://github.com/<usuario>/SCDay-lab-gato.git
-cd SCDay-lab-gato
+git clone https://github.com/ja-juarez-cruz/aws-scday-lab-gato.git
+cd aws-scday-lab-gato
 ```
 
 ## 3. Lab 1: despliega tu backend
@@ -93,7 +93,7 @@ Prueba también:
 Abre el frontend con la URL de tu WebSocket:
 
 ```
-https://<usuario>.github.io/SCDay-lab-gato/web/?ws=<tu WebSocketUrl>
+https://ja-juarez-cruz.github.io/aws-scday-lab-gato/web/?ws=<tu WebSocketUrl>
 ```
 
 Copia el link con el botón **"Copiar link para tu rival"** y ábrelo en otra laptop o celular.
