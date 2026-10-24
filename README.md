@@ -69,24 +69,50 @@ echo $WS_URL
 
 ### 3.1 El WebSocket "desnudo" con wscat
 
-Abre **dos pestañas** de CloudShell (botón `+`). En cada una ejecuta (en la segunda vuelve a hacer `cd` y a definir `WS_URL`):
+Vas a simular a los dos jugadores con dos pestañas de CloudShell. Sigue el orden; de eso depende lo que ves.
+
+**Pestaña 1 (jugador X).** En la que ya tienes abierta:
 
 ```bash
-npx wscat -c "$WS_URL?room=ABCD"
+npx -y wscat -c "$WS_URL?room=ABCD"
 ```
 
-En ambas escribe:
+Cuando diga `Connected`, escribe y presiona `Enter`:
 
 ```json
 {"action":"join"}
 ```
 
-Cuando la segunda pestaña hace `join`, **las dos** reciben un mensaje `state`. Eso es un broadcast.
+Recibes `"players": 1` y `"you": "X"`: todavía no hay nadie más en la sala.
 
-Prueba también:
-- Abrir una **tercera** conexión a la misma sala: `$connect` la rechaza con `403` porque la sala está llena.
-- Cerrar una pestaña con `Ctrl+C`: la otra recibe `{"type":"opponent_left"}` gracias a `$disconnect`.
+**Pestaña 2 (jugador O).** Abre otra pestaña con el botón `+`. Es una terminal nueva, así que vuelve a entrar a la
+carpeta y a definir `WS_URL`:
+
+```bash
+cd aws-scday-lab-gato
+WS_URL=$(aws cloudformation describe-stacks --stack-name scday-gato \
+  --query "Stacks[0].Outputs[?OutputKey=='WebSocketUrl'].OutputValue" --output text)
+npx -y wscat -c "$WS_URL?room=ABCD"
+```
+
+Escribe también `{"action":"join"}`. Ahora mira **las dos** pestañas:
+
+- Las dos recibieron un `state` con `"players": 2`. **La pestaña 1 recibió un mensaje sin haber escrito nada**:
+  el servidor le habló primero. Eso es un **broadcast**: `join.py` recorre los jugadores de la sala y le envía
+  el estado a cada uno.
+- Compara `you`: la pestaña 1 dice `"X"` y la 2 dice `"O"`. Cada quien recibe su propia versión del estado.
+
+> ¿Por qué hace falta el `join` si ya estás conectado? `$connect` todavía no puede enviar mensajes, así que nadie
+> se entera de que llegaste hasta que mandas `join`. El frontend lo envía solo al conectarse.
+
+Prueba también (hazlo en menos de 10 minutos, ver la nota de abajo):
+- Abrir una **tercera** conexión a la misma sala: `$connect` la rechaza (`Unexpected server response: 403`) porque la sala está llena.
 - Enviar `{"action":"move","cell":4}`: ¿pasa algo? Ese es el Lab 2.
+- Cerrar la pestaña 2 con `Ctrl+C`: la pestaña 1 recibe `{"type":"opponent_left"}` gracias a `$disconnect`.
+
+> **`Disconnected (code: 1001, reason: "Going away")`.** API Gateway cierra las conexiones que pasan
+> **10 minutos sin mensajes**. Es un límite del servicio, no un error tuyo. Vuelve a conectar con el mismo
+> comando `npx -y wscat ...` y manda `join`. En el navegador pasa lo mismo: si dice *Desconectado*, recarga la página.
 
 ### 3.2 Juega desde el navegador
 
