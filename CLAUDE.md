@@ -1,24 +1,25 @@
 # SCDay-lab-gato
 
 Lab de un workshop introductorio de WebSockets en AWS: un Gato (tic-tac-toe) para 2 jugadores.
-Los participantes despliegan el backend desde AWS CloudShell y completan los TODOs de `src/move.py`.
+Los participantes despliegan el backend desde AWS CloudShell y completan los TODOs de `src/move/move.py`.
 El README está escrito para ellos y sigue el orden de la agenda del taller.
 
 ## Arquitectura
 
 - API Gateway **WebSocket** (`RouteSelectionExpression: $request.body.action`), stage `lab` con `AutoDeploy`
   y throttling de 20 rps / ráfaga 50.
-- Rutas → Lambdas (Python 3.12, arm64, sin dependencias, `CodeUri: src/` compartido):
-  - `$connect` → `connect.py`: valida `?room=` (`[A-Z0-9]{3,12}`), toma el asiento X u O con una escritura
+- Rutas → Lambdas (Python 3.12, arm64, sin dependencias). Cada Lambda tiene su carpeta (`CodeUri: src/<ruta>/`)
+  y solo contiene su archivo; el código compartido llega por la Layer `SharedLayer` (`layers/shared/python/`):
+  - `$connect` → `src/connect/connect.py`: valida `?room=` (`[A-Z0-9]{3,12}`), toma el asiento X u O con una escritura
     condicional y rechaza con 403 si la sala está llena. Aquí todavía no se pueden enviar mensajes.
-  - `join` → `join.py`: envía `state` a cada jugador de la sala. Es el **ejemplo de referencia** de broadcast.
-  - `move` → `move.py`: aplica la jugada y envía `state` a ambos, o `error` solo a quien envió.
-  - `$disconnect` → `disconnect.py`: libera el asiento, reinicia el tablero y envía `opponent_left`.
-  - Retos (solo en la rama `retos-solution`): `rematch` → `rematch.py`, `emote` → `emote.py`.
+  - `join` → `src/join/join.py`: envía `state` a cada jugador de la sala. Es el **ejemplo de referencia** de broadcast.
+  - `move` → `src/move/move.py`: aplica la jugada y envía `state` a ambos (broadcast), o `error` solo a quien envió (unicast).
+  - `$disconnect` → `src/disconnect/disconnect.py`: libera el asiento, reinicia el tablero y envía `opponent_left`.
+  - Retos (solo en la rama `retos-solution`): `rematch` → `src/rematch/rematch.py`, `emote` → `src/emote/emote.py`.
 - DynamoDB on-demand, con TTL `expires_at` de 24 h:
   - `Connections`: `connection_id` → `room`, `seat`.
   - `Games`: `room` → `board` (9 caracteres, `_` = vacío), `turn`, `player_x`, `player_o`, `winner` (`X`/`O`/`draw`/null).
-- `src/game.py`: reglas puras (sin AWS). `src/common.py`: tablas, `ws_client(event)` (endpoint
+- `layers/shared/python/game.py`: reglas puras (sin AWS). `layers/shared/python/common.py`: tablas, `ws_client(event)` (endpoint
   `https://{domainName}/{stage}`), `save_game` (condicional sobre el tablero anterior) y `remove_connection`.
 - `web/index.html`: frontend estático de un solo archivo, sin dependencias. Lee `?ws=` y `?room=`
   (si no hay sala, genera una), muestra un panel con los mensajes ↑/↓ y ya trae los botones de revancha y emotes.
@@ -33,7 +34,8 @@ servidor → {"type":"state","board","turn","you","winner","players"} | {"type":
 
 ## Ramas (importante)
 
-- `main`: inicio del Lab 2. `move.py` tiene los TODOs 1–3; `test_flow` falla a propósito en 2 pruebas.
+- `main`: inicio del Lab 2. `move.py` tiene los TODOs 1–3 (1: buscar la conexión, 2: error por unicast, 3: copiar el
+  broadcast de `join.py` tal cual, por eso la variable se llama `game` en ambos); `test_flow` falla a propósito en 2 pruebas.
 - `lab2-solution` = `main` con `move.py` resuelto.
 - `retos-solution` = `lab2-solution` + `rematch.py`, `emote.py`, sus rutas en `template.yaml` y su prueba.
 
@@ -59,4 +61,6 @@ sam delete --no-prompts
 - El código es para principiantes: explícito y repetido antes que abstracto. El loop de broadcast se repite
   en cada handler a propósito, para que `join.py` sirva de guía al TODO de `move.py`. No lo factorices.
 - Las Lambdas no deben tener dependencias externas (solo boto3, que ya viene en el runtime).
+- Una ruta nueva lleva su carpeta `src/<ruta>/`, su `CodeUri` en `template.yaml` y su entrada en `pythonpath`
+  de `pyproject.toml` (las pruebas importan los handlers por nombre de módulo).
 - En los nombres y descripciones de recursos de AWS se usan guiones, nunca guiones largos (em dash).
