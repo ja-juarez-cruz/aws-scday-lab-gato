@@ -243,6 +243,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: rematch.handler
+      CodeUri: src/rematch/
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref GamesTable }
         - DynamoDBCrudPolicy: { TableName: !Ref ConnectionsTable }
@@ -276,6 +277,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: emote.handler
+      CodeUri: src/emote/
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref GamesTable }
         - DynamoDBCrudPolicy: { TableName: !Ref ConnectionsTable }
