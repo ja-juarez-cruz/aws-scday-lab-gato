@@ -150,11 +150,46 @@ cat src/join.py
 
 ### 4.2 Abre el archivo
 
+Elige **una** de las dos opciones.
+
+#### Opción A (recomendada): el editor de la consola de Lambda
+
+Es un editor como VS Code dentro del navegador: copias y pegas con el mouse, deshaces con `Ctrl+Z` (`Cmd+Z` en Mac)
+y te marca en rojo los errores. En CloudShell, genera el link directo a tu función:
+
+```bash
+echo "https://us-east-1.console.aws.amazon.com/lambda/home?region=us-east-1#/functions/$(aws cloudformation describe-stack-resource \
+  --stack-name scday-gato --logical-resource-id MoveFunction \
+  --query StackResourceDetail.PhysicalResourceId --output text)?tab=code"
+```
+
+Abre el link. A la izquierda verás todos los archivos de `src/`: abre `join.py` para copiar el `for` y `move.py` para editar.
+
+> Los cambios que hagas aquí viven solo en la Lambda, no en tu carpeta de CloudShell. Si después corres `sam deploy`
+> (por ejemplo, en los retos), se sobrescriben con la versión de CloudShell. Si quieres conservarlos, copia también
+> tu `move.py` a CloudShell con la opción B.
+
+#### Opción B: `nano` en CloudShell
+
 ```bash
 nano src/move.py
 ```
 
-En `nano` te mueves con las flechas, guardas con `Ctrl+O` y luego `Enter`, y sales con `Ctrl+X`.
+| Para | Presiona |
+|---|---|
+| Moverte | Flechas |
+| Pegar lo que copiaste con el mouse | `Ctrl+Shift+V` (`Cmd+V` en Mac) o clic derecho → Pegar |
+| **Deshacer** / rehacer | `Alt+U` / `Alt+E` |
+| Borrar la línea completa | `Ctrl+K` |
+| Buscar texto (por ejemplo `TODO`) | `Ctrl+W` |
+| Guardar | `Ctrl+O` y luego `Enter` |
+| Salir | `Ctrl+X` |
+
+> En Mac, si `Alt+U` escribe un carácter raro en lugar de deshacer, presiona `Esc` y después `U`
+> (lo mismo con `Esc` y `E` para rehacer). En nano, `Esc` + tecla equivale a `Alt` + tecla.
+>
+> ¿Lo arruinaste? Sal sin guardar (`Ctrl+X` y luego `N`) o recupera el archivo original con
+> `git checkout src/move.py`.
 
 ### 4.3 Completa los 3 TODOs
 
@@ -195,17 +230,16 @@ Cuida la **indentación**: en Python, el `for` debe quedar alineado con el `retu
 
 </details>
 
-### 4.4 Revisa, despliega y prueba
+### 4.4 Despliega y prueba
 
-Antes de desplegar, revisa que no haya errores de sintaxis (si no imprime nada, está bien):
+**Si usaste la opción A (consola de Lambda):** guarda con `Ctrl+S` (`Cmd+S` en Mac) y presiona el botón **Deploy**.
+Tarda unos segundos.
+
+**Si usaste la opción B (nano):** revisa que no haya errores de sintaxis (si no imprime nada, está bien) y despliega.
+Solo cambia el código de la Lambda, así que tarda menos de un minuto:
 
 ```bash
 python3 -m py_compile src/move.py
-```
-
-Despliega. Solo cambia el código de la Lambda, así que tarda menos de un minuto:
-
-```bash
 sam deploy
 ```
 
