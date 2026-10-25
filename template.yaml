@@ -7,8 +7,9 @@ Description: SCDay lab - Gato multijugador con API Gateway WebSocket, Lambda y D
 # Qué se crea, en resumen:
 #   - 2 tablas de DynamoDB: quién está conectado y cómo va cada partida.
 #   - 1 API de WebSocket con su stage "lab" (de ahí sale la URL wss://...).
+#   - 1 Layer con el código que comparten todas las Lambdas (common.py y game.py).
 #   - Por cada ruta ($connect, $disconnect, join, move) se repiten 4 piezas:
-#       Function     la Lambda con el código de src/<ruta>.py
+#       Function     la Lambda con el código de src/<ruta>/<ruta>.py (solo su archivo)
 #       Integration  le dice a API Gateway que esa ruta la atiende esa Lambda
 #       Route        el nombre de la ruta (el valor de "action" en el mensaje)
 #       Permission   autoriza a API Gateway a invocar esa Lambda
@@ -18,7 +19,8 @@ Globals:
   Function:
     Runtime: python3.12
     Architectures: [arm64]       # Graviton: más barato que x86 y el código es el mismo
-    CodeUri: src/                # todas usan la misma carpeta; cada una cambia solo su Handler
+    # Código compartido (common.py y game.py): todas las Lambdas lo reciben por la Layer
+    Layers: [!Ref SharedLayer]
     MemorySize: 256
     Timeout: 10
     Environment:
@@ -28,6 +30,18 @@ Globals:
         CONNECTIONS_TABLE: !Ref ConnectionsTable
 
 Resources:
+  # ── Código compartido ──────────────────────────────────────────────────────
+  # Una Layer es un .zip que Lambda agrega a la función en /opt. Lo que esté en python/
+  # se puede importar directamente (import common, import game). Así cada Lambda trae
+  # solo su archivo y el código común vive en un solo lugar.
+  SharedLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      Description: Codigo compartido del Gato - common.py y game.py
+      ContentUri: layers/shared/
+      CompatibleRuntimes: [python3.12]
+      CompatibleArchitectures: [arm64]
+
   # ── Datos ──────────────────────────────────────────────────────────────────
   # Una Lambda no recuerda nada entre una invocación y otra, por eso el estado vive en DynamoDB.
   # PAY_PER_REQUEST: se paga por lectura y escritura, sin capacidad reservada (cuesta $0 si nadie juega).
@@ -88,7 +102,8 @@ Resources:
   ConnectFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Handler: connect.handler   # archivo src/connect.py, función handler
+      Handler: connect.handler   # archivo connect.py, función handler
+      CodeUri: src/connect/      # solo esta carpeta se sube a esta Lambda
       # SAM crea un rol de IAM con estos permisos: solo leer y escribir en nuestras 2 tablas
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref GamesTable }
@@ -122,6 +137,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: disconnect.handler
+      CodeUri: src/disconnect/
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref GamesTable }
         - DynamoDBCrudPolicy: { TableName: !Ref ConnectionsTable }
@@ -158,6 +174,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: join.handler
+      CodeUri: src/join/
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref GamesTable }
         - DynamoDBCrudPolicy: { TableName: !Ref ConnectionsTable }
@@ -192,6 +209,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: move.handler
+      CodeUri: src/move/
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref GamesTable }
         - DynamoDBCrudPolicy: { TableName: !Ref ConnectionsTable }
