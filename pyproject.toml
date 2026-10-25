@@ -1,3 +1,3 @@
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["layers/shared/python", "src/connect", "src/disconnect", "src/join", "src/move"]
 testpaths = ["tests"]

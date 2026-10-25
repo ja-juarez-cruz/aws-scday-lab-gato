@@ -7,10 +7,11 @@ funcionar en tiempo real: enviar el estado del juego a ambos jugadores.
 
 ```
 Navegador ──wss──► API Gateway WebSocket
-                     ├─ $connect    → src/connect.py     entra a la sala y se le asigna X u O
-                     ├─ join        → src/join.py        envía el estado a los jugadores de la sala
-                     ├─ move        → src/move.py        valida la jugada y avisa a ambos   ← Lab 2
-                     └─ $disconnect → src/disconnect.py  libera el lugar y avisa al rival
+                     ├─ $connect    → src/connect/connect.py        entra a la sala y se le asigna X u O
+                     ├─ join        → src/join/join.py              envía el estado a los jugadores de la sala
+                     ├─ move        → src/move/move.py              valida la jugada y avisa a ambos   ← Lab 2
+                     └─ $disconnect → src/disconnect/disconnect.py  libera el lugar y avisa al rival
+                   Layer compartida → layers/shared/python/         common.py (DynamoDB y WebSocket), game.py (reglas)
                    DynamoDB
                      ├─ Connections   connection_id → room, seat
                      └─ Games         room → board, turn, player_x, player_o, winner
@@ -137,15 +138,33 @@ Si acabas de desplegar, espera 1 o 2 minutos y recarga.
 ## 4. Lab 2: haz que funcione en tiempo real
 
 Las jugadas no llegan a nadie. Aquí **no** basta con correr comandos: vas a **escribir unas líneas de Python** en
-`src/move.py`, donde dice `TODO`. Los comentarios de los TODOs puedes dejarlos o borrarlos, da igual.
+`src/move/move.py`, donde dice `TODO`. Los comentarios de los TODOs puedes dejarlos o borrarlos, da igual.
+
+Hay dos formas de enviar mensajes desde el servidor, y vas a usar las dos:
+
+- **Unicast:** a una sola conexión. Por ejemplo, el error "No es tu turno" solo le interesa a quien se equivocó.
+- **Broadcast:** a todos los de la sala. El tablero nuevo lo tienen que ver los dos jugadores.
+
+En los dos casos se usa `client.post_to_connection(ConnectionId=..., Data=...)`. Lo único que cambia es a quién se lo envías.
 
 ### 4.1 Mira el ejemplo
 
-Abre `src/join.py`. Al final tiene un `for` que le envía el estado a cada jugador de la sala. Ese es el patrón del
-broadcast y lo vas a repetir en `move.py`:
+`src/join/join.py` ya hace un broadcast. Este es su `for`: recorre los dos lugares de la sala (X y O) y a cada
+jugador le envía su propia versión del estado. Lo vas a copiar tal cual en el TODO 3.
 
-```bash
-cat src/join.py
+```python
+    for seat, seat_key in (("X", "player_x"), ("O", "player_o")):
+        player_connection = game.get(seat_key)
+        if not player_connection:
+            continue
+        try:
+            client.post_to_connection(
+                ConnectionId=player_connection,
+                Data=to_bytes(state_for(game, seat)),
+            )
+        except client.exceptions.GoneException:
+            # Esa conexión ya se cerró y no nos enteramos: la limpiamos
+            remove_connection(player_connection)
 ```
 
 ### 4.2 Abre el archivo
@@ -163,16 +182,17 @@ echo "https://us-east-1.console.aws.amazon.com/lambda/home?region=us-east-1#/fun
   --query StackResourceDetail.PhysicalResourceId --output text)?tab=code"
 ```
 
-Abre el link. A la izquierda verás todos los archivos de `src/`: abre `join.py` para copiar el `for` y `move.py` para editar.
+Abre el link y, a la izquierda, abre `move.py`. Cada Lambda trae solo su archivo; el código que comparten
+(`common.py` y `game.py`) le llega por una *Layer*, así que no lo vas a ver aquí.
 
 > Los cambios que hagas aquí viven solo en la Lambda, no en tu carpeta de CloudShell. Si después corres `sam deploy`
-> (por ejemplo, en los retos), se sobrescriben con la versión de CloudShell. Si quieres conservarlos, copia también
-> tu `move.py` a CloudShell con la opción B.
+> (por ejemplo, en los retos), se sobrescriben con la versión de CloudShell. Si quieres conservarlos, haz también
+> los cambios en CloudShell con la opción B.
 
 #### Opción B: `nano` en CloudShell
 
 ```bash
-nano src/move.py
+nano src/move/move.py
 ```
 
 | Para | Presiona |
@@ -189,17 +209,18 @@ nano src/move.py
 > (lo mismo con `Esc` y `E` para rehacer). En nano, `Esc` + tecla equivale a `Alt` + tecla.
 >
 > ¿Lo arruinaste? Sal sin guardar (`Ctrl+X` y luego `N`) o recupera el archivo original con
-> `git checkout src/move.py`.
+> `git checkout src/move/move.py`.
 
 ### 4.3 Completa los 3 TODOs
 
 | TODO | Qué hace | Qué escribes |
 |---|---|---|
 | 1 | Averigua de qué sala es la conexión que envió el mensaje | Cambia `connection = None` por `connection = get_connection(connection_id)` |
-| 2 | Envía el nuevo estado a **los dos** jugadores, cada uno con su ficha en `you` | Debajo del comentario del TODO 2, pega el `for` de `join.py` y cambia `game` por `updated` |
-| 3 | Si una conexión ya no existe (`GoneException`), límpiala | Ya viene en el `for` que copiaste (el `try` / `except`) |
+| 2 | **Unicast:** si la jugada no es válida, avísale solo a quien la envió | Un `client.post_to_connection(...)` con `ConnectionId=connection_id` y el mensaje `{"type": "error", "message": error}` |
+| 3 | **Broadcast:** envía el tablero nuevo a los dos jugadores | Pega el `for` del paso 4.1 tal cual, sin cambiarle nada |
 
-Cuida la **indentación**: en Python, el `for` debe quedar alineado con el `return` de abajo (4 espacios).
+Cuida la **indentación** (los espacios al inicio de cada línea): en Python indican qué va dentro de qué.
+El código del TODO 2 va dentro del `if error:` (8 espacios) y el `for` del TODO 3 va alineado con el `return` final (4 espacios).
 
 <details>
 <summary>¿Te atoraste? Ver cómo debe quedar</summary>
@@ -208,19 +229,29 @@ Cuida la **indentación**: en Python, el `for` debe quedar alineado con el `retu
     # 1. ¿De qué sala es esta conexión?
     connection = get_connection(connection_id)
     if connection is None:
+        print("No encontré la conexión en la tabla Connections")
         return {"statusCode": 403}
 
     # ... (lo de en medio no cambia) ...
 
-    # 3. Enviamos el nuevo estado a los dos jugadores
+    if error:
+        print(f"Jugada rechazada: {error}")
+        # Solo a quien envió la jugada (unicast)
+        client.post_to_connection(
+            ConnectionId=connection_id,
+            Data=to_bytes({"type": "error", "message": error}),
+        )
+        return {"statusCode": 400}
+
+    # 3. Enviamos el nuevo estado a los dos jugadores (broadcast)
     for seat, seat_key in (("X", "player_x"), ("O", "player_o")):
-        player_connection = updated.get(seat_key)
+        player_connection = game.get(seat_key)
         if not player_connection:
             continue
         try:
             client.post_to_connection(
                 ConnectionId=player_connection,
-                Data=to_bytes(state_for(updated, seat)),
+                Data=to_bytes(state_for(game, seat)),
             )
         except client.exceptions.GoneException:
             remove_connection(player_connection)
@@ -239,18 +270,25 @@ Tarda unos segundos.
 Solo cambia el código de la Lambda, así que tarda menos de un minuto:
 
 ```bash
-python3 -m py_compile src/move.py
+python3 -m py_compile src/move/move.py
 sam deploy
 ```
 
 **Recarga las dos ventanas del juego** y juega: ahora cada jugada aparece en las dos, y en el panel ves el `↓ state`
-que le llega a cada una.
+que le llega a cada una. Para probar el TODO 2, en wscat manda una jugada cuando no es tu turno: solo tú recibes el `error`.
 
-Para ver los logs de tu Lambda mientras juegas:
+### 4.5 ¿No pasa nada? Revisa los logs
 
-```bash
-sam logs --stack-name scday-gato -n MoveFunction --tail
-```
+Si mandas una jugada y no llega nada, la Lambda te dice por qué en sus logs (cada `print` del código aparece ahí):
+
+- En la consola de Lambda: pestaña **Monitor** → **View CloudWatch logs** → el registro más reciente.
+- En CloudShell:
+
+  ```bash
+  sam logs --stack-name scday-gato -n MoveFunction --tail
+  ```
+
+Por ejemplo, si ves *"No encontré la conexión en la tabla Connections"*, te falta el TODO 1.
 
 ### ¿Te atrasaste?
 
@@ -266,11 +304,11 @@ El frontend ya tiene botones de **Revancha** y **emotes** (👏 😂 😱 🔥).
 `{"action":"rematch"}` y `{"action":"emote","emoji":"🔥"}`, pero esas rutas todavía no existen.
 Mientras no existan, verás en el panel de mensajes la respuesta `Forbidden` de API Gateway.
 
-1. **Emotes:** crea `src/emote.py` que reenvíe `{"type":"emote","emoji":...,"from":"X"}` a ambos jugadores.
-2. **Revancha:** crea `src/rematch.py` que reinicie el tablero cuando la partida terminó.
+1. **Emotes:** crea `src/emote/emote.py` que reenvíe `{"type":"emote","emoji":...,"from":"X"}` a ambos jugadores.
+2. **Revancha:** crea `src/rematch/rematch.py` que reinicie el tablero cuando la partida terminó.
 
 Para cada ruta nueva agrega a `template.yaml` una función, una integración, una ruta y un permiso
-(copia el bloque de `move` y cambia los nombres), y agrégala al `DependsOn` de `GatoStage`.
+(copia el bloque de `move` y cambia los nombres, incluido `CodeUri: src/<ruta>/`), y agrégala al `DependsOn` de `GatoStage`.
 La solución está en la rama `retos-solution`.
 
 ## 6. Limpieza
