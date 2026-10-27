@@ -19,22 +19,26 @@ def handler(event, context):
     if not game.get("winner"):
         return {"statusCode": 400}  # solo se puede pedir revancha al terminar
 
-    # Empieza quien no empezó: si ganó X, abre O (y viceversa)
-    restarted = {**game, "board": new_board(), "turn": "O" if game["winner"] == "X" else "X", "winner": None}
-    if not save_game(restarted, previous_board=game["board"]):
+    # Tablero nuevo. Empieza quien perdió: si ganó X, abre O (y viceversa)
+    previous_board = game["board"]
+    first = "O" if game["winner"] == "X" else "X"
+    game = {**game, "board": new_board(), "turn": first, "winner": None}
+    if not save_game(game, previous_board=previous_board):
         return {"statusCode": 409}  # el otro jugador ya pidió la revancha
 
+    # Broadcast: el mismo for de join.py
     client = ws_client(event)
     for seat, seat_key in (("X", "player_x"), ("O", "player_o")):
-        player_connection = restarted.get(seat_key)
+        player_connection = game.get(seat_key)
         if not player_connection:
             continue
         try:
             client.post_to_connection(
                 ConnectionId=player_connection,
-                Data=to_bytes(state_for(restarted, seat)),
+                Data=to_bytes(state_for(game, seat)),
             )
         except client.exceptions.GoneException:
+            # Esa conexión ya se cerró y no nos enteramos: la limpiamos
             remove_connection(player_connection)
 
     return {"statusCode": 200}
