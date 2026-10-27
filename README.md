@@ -304,12 +304,304 @@ El frontend ya tiene botones de **Revancha** y **emotes** (👏 😂 😱 🔥).
 `{"action":"rematch"}` y `{"action":"emote","emoji":"🔥"}`, pero esas rutas todavía no existen.
 Mientras no existan, verás en el panel de mensajes la respuesta `Forbidden` de API Gateway.
 
-1. **Emotes:** crea `src/emote/emote.py` que reenvíe `{"type":"emote","emoji":...,"from":"X"}` a ambos jugadores.
-2. **Revancha:** crea `src/rematch/rematch.py` que reinicie el tablero cuando la partida terminó.
+Cada reto es una **ruta nueva**, y una ruta nueva siempre lleva lo mismo:
 
-Para cada ruta nueva agrega a `template.yaml` una función, una integración, una ruta y un permiso
-(copia el bloque de `move` y cambia los nombres, incluido `CodeUri: src/<ruta>/`), y agrégala al `DependsOn` de `GatoStage`.
-La solución está en la rama `retos-solution`.
+1. Su código: una carpeta `src/<ruta>/` con su archivo `<ruta>.py`.
+2. En `template.yaml`, las 4 piezas: Function, Integration, Route y Permission.
+3. Agregarla al `DependsOn` de `GatoStage`.
+4. `sam deploy`.
+
+> **¿Sin tiempo?** Salta al [atajo del paso 5.3](#53-atajo-trae-la-solución-con-git-merge): un `git merge` y un
+> `sam deploy`, y tienes los dos retos funcionando.
+
+> **Si hiciste el Lab 2 en la consola de Lambda (opción A):** tu `move.py` de CloudShell todavía tiene los TODOs, y
+> el `sam deploy` de los retos lo va a sobrescribir en AWS. Antes de desplegar, haz los mismos cambios en
+> `src/move/move.py` con nano o usa el atajo del 5.3, que ya trae `move.py` resuelto.
+
+### 5.1 Reto 1: emotes (el más fácil, puro broadcast)
+
+**Paso 1. Crea el archivo.**
+
+```bash
+mkdir -p src/emote
+nano src/emote/emote.py
+```
+
+Pega este punto de partida y completa los pasos 1 a 3 de los comentarios:
+
+```python
+"""Ruta "emote": reenvía un emoji a los dos jugadores de la sala."""
+
+import json
+
+from common import get_connection, get_game, remove_connection, to_bytes, ws_client
+
+ALLOWED = {"👏", "😂", "😱", "🔥"}
+
+
+def handler(event, context):
+    connection_id = event["requestContext"]["connectionId"]
+    emoji = json.loads(event.get("body") or "{}").get("emoji")
+    if emoji not in ALLOWED:
+        return {"statusCode": 400}
+
+    # 1. Busca la conexión, igual que en el TODO 1 de move.py (si es None, regresa 403)
+    # 2. Trae la partida con get_game(connection["room"])
+    # 3. Envía a los dos jugadores el mismo mensaje (broadcast):
+    #    {"type": "emote", "emoji": emoji, "from": connection["seat"]}
+    #    Pista: el for de join.py, pero aquí todos reciben el mismo mensaje
+
+    return {"statusCode": 200}
+```
+
+<details>
+<summary>Ver la solución de emote.py</summary>
+
+```python
+"""Reto extra - ruta "emote": reenvía un emoji a todos los de la sala. Puro broadcast, sin reglas.
+
+Mensaje que llega:  {"action": "emote", "emoji": "🔥"}
+Mensaje que sale:   {"type": "emote", "emoji": "🔥", "from": "X"} a AMBOS jugadores.
+"""
+
+import json
+
+from common import get_connection, get_game, remove_connection, to_bytes, ws_client
+
+ALLOWED = {"👏", "😂", "😱", "🔥"}
+
+
+def handler(event, context):
+    connection_id = event["requestContext"]["connectionId"]
+    emoji = json.loads(event.get("body") or "{}").get("emoji")
+    if emoji not in ALLOWED:
+        return {"statusCode": 400}
+
+    connection = get_connection(connection_id)
+    if connection is None:
+        return {"statusCode": 403}
+
+    game = get_game(connection["room"])
+    message = to_bytes({"type": "emote", "emoji": emoji, "from": connection["seat"]})
+
+    client = ws_client(event)
+    for player_connection in (game.get("player_x"), game.get("player_o")):
+        if not player_connection:
+            continue
+        try:
+            client.post_to_connection(ConnectionId=player_connection, Data=message)
+        except client.exceptions.GoneException:
+            remove_connection(player_connection)
+
+    return {"statusCode": 200}
+```
+
+</details>
+
+**Paso 2. Agrega las 4 piezas al template.** Abre `nano template.yaml`, baja hasta el final (`Alt+/`, o `Esc` y
+luego `/`) y pega este bloque **justo antes** de la línea que empieza con `# Lo que imprime`. El bloque ya trae los
+2 espacios del inicio, igual que los demás recursos: no los quites. Es el bloque de `move` con 4 cambios: los nombres (`Emote...`), el `Handler`, el `CodeUri`
+y el `RouteKey`.
+
+```yaml
+  # ── Reto extra - emote: {"action":"emote","emoji":"🔥"} ─────────────────────
+  # Reenvía un emoji a los dos jugadores. Es puro broadcast, sin reglas del juego.
+  EmoteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: emote.handler
+      CodeUri: src/emote/
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref GamesTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ConnectionsTable }
+        - Statement:
+            - Effect: Allow
+              Action: execute-api:ManageConnections
+              Resource: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
+  EmoteIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref GatoApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${EmoteFunction.Arn}/invocations
+  EmoteRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref GatoApi
+      RouteKey: emote
+      Target: !Sub integrations/${EmoteIntegration}
+  EmotePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref EmoteFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
+```
+
+**Paso 3. Agrega la ruta al `DependsOn` de `GatoStage`** (busca `DependsOn` con `Ctrl+W`):
+
+```yaml
+    DependsOn: [ConnectRoute, DisconnectRoute, JoinRoute, MoveRoute, EmoteRoute]
+```
+
+**Paso 4. Despliega y prueba.**
+
+```bash
+sam deploy
+```
+
+Espera 1 o 2 minutos después del deploy (API Gateway tarda en publicar las rutas nuevas; mientras tanto puedes
+seguir viendo `Forbidden`), **recarga las dos ventanas** y presiona un emoji: debe flotar en las dos.
+
+### 5.2 Reto 2: revancha (reinicia el tablero)
+
+Los mismos 4 pasos, con `rematch` en lugar de `emote`:
+
+```bash
+mkdir -p src/rematch
+nano src/rematch/rematch.py
+```
+
+Reglas: solo se puede pedir revancha cuando la partida terminó (`game["winner"]` tiene valor), el tablero se vacía
+con `new_board()`, empieza quien perdió y los dos reciben el nuevo `state`.
+
+```python
+"""Ruta "rematch": reinicia el tablero cuando la partida ya terminó."""
+
+from common import get_connection, get_game, remove_connection, save_game, to_bytes, ws_client
+from game import new_board, state_for
+
+
+def handler(event, context):
+    connection_id = event["requestContext"]["connectionId"]
+
+    # 1. Busca la conexión (si es None, regresa 403) y trae la partida con get_game(...)
+    # 2. Si la partida no ha terminado (not game.get("winner")), regresa 400
+    # 3. Guarda el tablero anterior y arma la partida nueva:
+    #      previous_board = game["board"]
+    #      first = "O" if game["winner"] == "X" else "X"
+    #      game = {**game, "board": new_board(), "turn": first, "winner": None}
+    #    Guárdala con save_game(game, previous_board=previous_board); si regresa False, regresa 409
+    #    (significa que el otro jugador ya pidió la revancha)
+    # 4. Broadcast: copia el for de join.py tal cual (necesitas client = ws_client(event))
+
+    return {"statusCode": 200}
+```
+
+<details>
+<summary>Ver la solución de rematch.py</summary>
+
+```python
+"""Reto extra - ruta "rematch": reinicia el tablero cuando la partida ya terminó.
+
+Mensaje que llega:  {"action": "rematch"}
+Mensaje que sale:   {"type": "state", ...} a AMBOS jugadores.
+"""
+
+from common import get_connection, get_game, remove_connection, save_game, to_bytes, ws_client
+from game import new_board, state_for
+
+
+def handler(event, context):
+    connection_id = event["requestContext"]["connectionId"]
+
+    connection = get_connection(connection_id)
+    if connection is None:
+        return {"statusCode": 403}
+
+    game = get_game(connection["room"])
+    if not game.get("winner"):
+        return {"statusCode": 400}  # solo se puede pedir revancha al terminar
+
+    # Tablero nuevo. Empieza quien perdió: si ganó X, abre O (y viceversa)
+    previous_board = game["board"]
+    first = "O" if game["winner"] == "X" else "X"
+    game = {**game, "board": new_board(), "turn": first, "winner": None}
+    if not save_game(game, previous_board=previous_board):
+        return {"statusCode": 409}  # el otro jugador ya pidió la revancha
+
+    # Broadcast: el mismo for de join.py
+    client = ws_client(event)
+    for seat, seat_key in (("X", "player_x"), ("O", "player_o")):
+        player_connection = game.get(seat_key)
+        if not player_connection:
+            continue
+        try:
+            client.post_to_connection(
+                ConnectionId=player_connection,
+                Data=to_bytes(state_for(game, seat)),
+            )
+        except client.exceptions.GoneException:
+            # Esa conexión ya se cerró y no nos enteramos: la limpiamos
+            remove_connection(player_connection)
+
+    return {"statusCode": 200}
+```
+
+</details>
+
+En `template.yaml`, pega este bloque también antes de la línea `# Lo que imprime`:
+
+```yaml
+  # ── Reto extra - rematch: {"action":"rematch"} ─────────────────────────────
+  # Reinicia el tablero cuando la partida terminó. Son las mismas 4 piezas que move.
+  RematchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: rematch.handler
+      CodeUri: src/rematch/
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref GamesTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ConnectionsTable }
+        - Statement:
+            - Effect: Allow
+              Action: execute-api:ManageConnections
+              Resource: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
+  RematchIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref GatoApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RematchFunction.Arn}/invocations
+  RematchRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref GatoApi
+      RouteKey: rematch
+      Target: !Sub integrations/${RematchIntegration}
+  RematchPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref RematchFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
+```
+
+Y deja el `DependsOn` así:
+
+```yaml
+    DependsOn: [ConnectRoute, DisconnectRoute, JoinRoute, MoveRoute, RematchRoute, EmoteRoute]
+```
+
+Despliega con `sam deploy`, espera 1 o 2 minutos, recarga, termina una partida y presiona **Revancha**.
+
+> ¿Algo falla? `sam deploy` te dice si el template tiene un error (casi siempre es la indentación). Si el deploy pasa
+> pero el botón no hace nada, revisa los logs: `sam logs --stack-name scday-gato -n RematchFunction --tail`.
+
+### 5.3 Atajo: trae la solución con `git merge`
+
+La rama `retos-solution` tiene todo resuelto: `move.py` del Lab 2, los dos retos y el template con sus rutas.
+
+```bash
+git stash                          # guarda tus cambios (si no cambiaste nada, no pasa nada)
+git merge origin/retos-solution    # trae la solución
+sam deploy
+```
+
+Espera 1 o 2 minutos, recarga las dos ventanas y prueba los emotes y la revancha. Después compara con lo que
+habías hecho: `git stash show -p` muestra tus cambios guardados.
 
 ## 6. Limpieza
 
