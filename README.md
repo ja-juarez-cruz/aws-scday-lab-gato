@@ -613,18 +613,4 @@ sam delete --no-prompts
 
 ---
 
-## Para el instructor
 
-- **Ramas:** `main` (inicio del lab, con TODOs), `lab2-solution` y `retos-solution`.
-- **Frontend:** `web/index.html` es un archivo estático sin dependencias. Publícalo con GitHub Pages
-  (Settings → Pages → rama `main`, carpeta `/root`) y actualiza la URL del paso 3.2.
-- **Pruebas locales** (no hace falta AWS):
-
-  ```bash
-  python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-  .venv/bin/pytest            # en main, test_flow falla hasta completar el Lab 2
-  .venv/bin/cfn-lint template.yaml
-  ```
-
-- **Costo:** con unas cuantas partidas el lab cuesta centavos (Lambda, API Gateway y DynamoDB on-demand),
-  y gran parte cae en el Free Tier. La stage limita a 20 mensajes por segundo (ráfagas de 50).
