@@ -85,7 +85,7 @@ Resources:
   GatoStage:
     Type: AWS::ApiGatewayV2::Stage
     # Se crea después de las rutas, para que el primer despliegue ya las incluya.
-    # Cada ruta nueva (como las de los retos) se agrega aquí.
+    # Cada ruta nueva (como las de los Labs 3 y 4) se agrega aquí.
     DependsOn: [ConnectRoute, DisconnectRoute, JoinRoute, MoveRoute, RematchRoute, EmoteRoute]
     Properties:
       ApiId: !Ref GatoApi
@@ -237,7 +237,7 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
 
-  # ── Reto extra - rematch: {"action":"rematch"} ─────────────────────────────
+  # ── Lab 4 - rematch: {"action":"rematch"} ──────────────────────────────────
   # Reinicia el tablero cuando la partida terminó. Son las mismas 4 piezas que move.
   RematchFunction:
     Type: AWS::Serverless::Function
@@ -271,7 +271,7 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
 
-  # ── Reto extra - emote: {"action":"emote","emoji":"🔥"} ─────────────────────
+  # ── Lab 3 - emote: {"action":"emote","emoji":"🔥"} ──────────────────────────
   # Reenvía un emoji a los dos jugadores. Es puro broadcast, sin reglas del juego.
   EmoteFunction:
     Type: AWS::Serverless::Function

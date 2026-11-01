@@ -1,4 +1,4 @@
-"""Reto extra - ruta "emote": reenvía un emoji a todos los de la sala. Puro broadcast, sin reglas.
+"""Lab 3 - ruta "emote": reenvía un emoji a todos los de la sala. Puro broadcast, sin reglas.
 
 Mensaje que llega:  {"action": "emote", "emoji": "🔥"}
 Mensaje que sale:   {"type": "emote", "emoji": "🔥", "from": "X"} a AMBOS jugadores.

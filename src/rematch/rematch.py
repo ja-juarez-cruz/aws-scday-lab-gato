@@ -1,4 +1,4 @@
-"""Reto extra - ruta "rematch": reinicia el tablero cuando la partida ya terminó.
+"""Lab 4 - ruta "rematch": reinicia el tablero cuando la partida ya terminó.
 
 Mensaje que llega:  {"action": "rematch"}
 Mensaje que sale:   {"type": "state", ...} a AMBOS jugadores.
@@ -26,7 +26,7 @@ def handler(event, context):
     if not save_game(game, previous_board=previous_board):
         return {"statusCode": 409}  # el otro jugador ya pidió la revancha
 
-    # Broadcast: el mismo for de join.py
+    # Broadcast: el mismo for de join.py (seat es la ficha de quien RECIBE)
     client = ws_client(event)
     for seat, seat_key in (("X", "player_x"), ("O", "player_o")):
         player_connection = game.get(seat_key)
