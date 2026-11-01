@@ -9,7 +9,9 @@ from common import remove_connection, to_bytes, ws_client
 def handler(event, context):
     connection_id = event["requestContext"]["connectionId"]
 
-    game = remove_connection(connection_id)  # libera el lugar y reinicia el tablero
+    # Borra la fila de Connections, quita el connection_id de player_x o player_o en Games
+    # y reinicia el tablero. Regresa el game con el asiento que queda ocupado.
+    game = remove_connection(connection_id)
     if game is None:
         return {"statusCode": 200}  # la sala quedó vacía, no hay a quién avisar
 

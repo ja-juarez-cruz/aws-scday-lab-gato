@@ -3,6 +3,11 @@
 Mensaje que llega:  {"action": "move", "cell": 4}
 Mensaje que sale:   {"type": "state", ...} a AMBOS jugadores (broadcast),
                     o {"type": "error", ...} solo a quien se equivocó (unicast).
+
+Recorrido de los datos:
+    connection_id (quien jugó) -> connection {room, seat} -> game de esa room
+    -> apply_move marca la casilla en game["board"] -> save_game lo guarda solo si el
+    board sigue siendo previous_board -> el nuevo game se envía a player_x y player_o.
 """
 
 import json
@@ -40,6 +45,7 @@ def handler(event, context):
         return {"statusCode": 400}
 
     # 3. Enviamos el nuevo estado a los dos jugadores (broadcast)
+    # Igual que en join.py: aquí seat es la ficha de quien RECIBE, no la de quien jugó.
     for seat, seat_key in (("X", "player_x"), ("O", "player_o")):
         player_connection = game.get(seat_key)
         if not player_connection:

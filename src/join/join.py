@@ -18,7 +18,9 @@ def handler(event, context):
     game = get_game(connection["room"])
     client = ws_client(event)
 
-    # Avisamos a todos los de la sala, cada quien con su ficha en "you"
+    # Avisamos a todos los de la sala, cada quien con su ficha en "you".
+    # Ojo: en este for, seat es la ficha de quien RECIBE el mensaje, no la de quien
+    # envió el join; por eso cada jugador recibe su propia versión del estado.
     for seat, seat_key in (("X", "player_x"), ("O", "player_o")):
         player_connection = game.get(seat_key)
         if not player_connection:

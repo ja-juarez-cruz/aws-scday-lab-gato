@@ -5,12 +5,21 @@ Lab del workshop **"Tiempo real sin servidores: construye un juego multijugador 
 Vas a desplegar el backend de un Gato (tic-tac-toe) para 2 jugadores y a programar la parte que lo hace
 funcionar en tiempo real: enviar el estado del juego a ambos jugadores.
 
+| Lab | Qué haces | Qué aprendes |
+|---|---|---|
+| 1 | Despliegas el backend y lo pruebas con `wscat` y el navegador | Cómo se ve un WebSocket por dentro |
+| 2 | Completas 3 TODOs en `move.py` | Unicast y broadcast |
+| 3 | Agregas la ruta `emote` | Crear una ruta nueva de principio a fin |
+| 4 | Agregas la ruta `rematch` | Una ruta nueva que además cambia el juego |
+
 ```
 Navegador ──wss──► API Gateway WebSocket
                      ├─ $connect    → src/connect/connect.py        entra a la sala y se le asigna X u O
                      ├─ join        → src/join/join.py              envía el estado a los jugadores de la sala
                      ├─ move        → src/move/move.py              valida la jugada y avisa a ambos   ← Lab 2
-                     └─ $disconnect → src/disconnect/disconnect.py  libera el lugar y avisa al rival
+                     ├─ $disconnect → src/disconnect/disconnect.py  libera el lugar y avisa al rival
+                     ├─ emote       → src/emote/emote.py            reenvía un emoji a los dos         ← Lab 3
+                     └─ rematch     → src/rematch/rematch.py        reinicia el tablero                ← Lab 4
                    Layer compartida → layers/shared/python/         common.py (DynamoDB y WebSocket), game.py (reglas)
                    DynamoDB
                      ├─ Connections   connection_id → room, seat
@@ -25,19 +34,25 @@ API Gateway lee el campo `action` de cada mensaje para decidir qué Lambda lo at
 // navegador → servidor
 { "action": "join" }
 { "action": "move", "cell": 4 }          // casillas 0..8, de izquierda a derecha y de arriba abajo
+{ "action": "emote", "emoji": "🔥" }     // Lab 3
+{ "action": "rematch" }                  // Lab 4
 
 // servidor → navegador
 { "type": "state", "board": "X___O____", "turn": "X", "you": "O", "winner": null, "players": 2 }
 { "type": "error", "message": "No es tu turno" }
 { "type": "opponent_left" }
+{ "type": "emote", "emoji": "🔥", "from": "X" }   // Lab 3
 ```
 
 ---
 
-## 0. Antes de empezar (solo si usas tu propia cuenta)
+## 0. ¿Cuánto cuesta?
 
-Crea un presupuesto de 1 USD para que AWS te avise si algo genera costos:
-**Billing and Cost Management → Budgets → Create budget → Zero spend budget** (o *Monthly cost budget* de 1 USD).
+Prácticamente nada. Nada de este lab cobra por hora ni por estar encendido: API Gateway, Lambda y DynamoDB
+(en modo *on-demand*) solo cobran por uso, y en todo el taller vas a enviar unos cientos de mensajes.
+Por ejemplo, API Gateway cobra 1 USD por **millón** de mensajes, y CloudShell no tiene costo.
+
+La única regla: **al terminar, corre `sam delete`** ([paso 8](#8-limpieza)). Así no queda nada desplegado.
 
 ## 1. Abre CloudShell
 
@@ -186,7 +201,7 @@ Abre el link y, a la izquierda, abre `move.py`. Cada Lambda trae solo su archivo
 (`common.py` y `game.py`) le llega por una *Layer*, así que no lo vas a ver aquí.
 
 > Los cambios que hagas aquí viven solo en la Lambda, no en tu carpeta de CloudShell. Si después corres `sam deploy`
-> (por ejemplo, en los retos), se sobrescriben con la versión de CloudShell. Si quieres conservarlos, haz también
+> (por ejemplo, en los Labs 3 y 4), se sobrescriben con la versión de CloudShell. Si quieres conservarlos, haz también
 > los cambios en CloudShell con la opción B.
 
 #### Opción B: `nano` en CloudShell
@@ -298,29 +313,27 @@ git checkout lab2-solution
 sam deploy
 ```
 
-## 5. Retos extra
+## 5. Lab 3: emotes (una ruta nueva, puro broadcast)
 
-El frontend ya tiene botones de **Revancha** y **emotes** (👏 😂 😱 🔥). Envían
-`{"action":"rematch"}` y `{"action":"emote","emoji":"🔥"}`, pero esas rutas todavía no existen.
+El frontend ya tiene botones de **emotes** (👏 😂 😱 🔥) y de **Revancha**. Envían
+`{"action":"emote","emoji":"🔥"}` y `{"action":"rematch"}`, pero esas rutas todavía no existen.
 Mientras no existan, verás en el panel de mensajes la respuesta `Forbidden` de API Gateway.
 
-Cada reto es una **ruta nueva**, y una ruta nueva siempre lleva lo mismo:
+En los Labs 3 y 4 vas a crearlas. Una ruta nueva siempre lleva lo mismo:
 
 1. Su código: una carpeta `src/<ruta>/` con su archivo `<ruta>.py`.
 2. En `template.yaml`, las 4 piezas: Function, Integration, Route y Permission.
 3. Agregarla al `DependsOn` de `GatoStage`.
 4. `sam deploy`.
 
-> **¿Sin tiempo?** Salta al [atajo del paso 5.3](#53-atajo-trae-la-solución-con-git-merge): un `git merge` y un
-> `sam deploy`, y tienes los dos retos funcionando.
+> **¿Sin tiempo?** Salta al [atajo del paso 7](#7-te-atrasaste-trae-la-solución-con-git-merge): un `git merge` y un
+> `sam deploy`, y tienes los Labs 2, 3 y 4 funcionando.
 
 > **Si hiciste el Lab 2 en la consola de Lambda (opción A):** tu `move.py` de CloudShell todavía tiene los TODOs, y
-> el `sam deploy` de los retos lo va a sobrescribir en AWS. Antes de desplegar, haz los mismos cambios en
-> `src/move/move.py` con nano o usa el atajo del 5.3, que ya trae `move.py` resuelto.
+> el `sam deploy` de este lab lo va a sobrescribir en AWS. Antes de desplegar, haz los mismos cambios en
+> `src/move/move.py` con nano o usa el atajo del paso 7, que ya trae `move.py` resuelto.
 
-### 5.1 Reto 1: emotes (el más fácil, puro broadcast)
-
-**Paso 1. Crea el archivo.**
+### 5.1 Crea el archivo
 
 ```bash
 mkdir -p src/emote
@@ -358,7 +371,7 @@ def handler(event, context):
 <summary>Ver la solución de emote.py</summary>
 
 ```python
-"""Reto extra - ruta "emote": reenvía un emoji a todos los de la sala. Puro broadcast, sin reglas.
+"""Lab 3 - ruta "emote": reenvía un emoji a todos los de la sala. Puro broadcast, sin reglas.
 
 Mensaje que llega:  {"action": "emote", "emoji": "🔥"}
 Mensaje que sale:   {"type": "emote", "emoji": "🔥", "from": "X"} a AMBOS jugadores.
@@ -398,13 +411,15 @@ def handler(event, context):
 
 </details>
 
-**Paso 2. Agrega las 4 piezas al template.** Abre `nano template.yaml`, baja hasta el final (`Alt+/`, o `Esc` y
+### 5.2 Agrega las 4 piezas al template
+
+Abre `nano template.yaml`, baja hasta el final (`Alt+/`, o `Esc` y
 luego `/`) y pega este bloque **justo antes** de la línea que empieza con `# Lo que imprime`. El bloque ya trae los
 2 espacios del inicio, igual que los demás recursos: no los quites. Es el bloque de `move` con 4 cambios: los nombres (`Emote...`), el `Handler`, el `CodeUri`
 y el `RouteKey`.
 
 ```yaml
-  # ── Reto extra - emote: {"action":"emote","emoji":"🔥"} ─────────────────────
+  # ── Lab 3 - emote: {"action":"emote","emoji":"🔥"} ─────────────────────
   # Reenvía un emoji a los dos jugadores. Es puro broadcast, sin reglas del juego.
   EmoteFunction:
     Type: AWS::Serverless::Function
@@ -439,13 +454,15 @@ y el `RouteKey`.
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
 ```
 
-**Paso 3. Agrega la ruta al `DependsOn` de `GatoStage`** (busca `DependsOn` con `Ctrl+W`):
+### 5.3 Agrega la ruta al `DependsOn` de `GatoStage`
+
+Búscalo con `Ctrl+W`:
 
 ```yaml
     DependsOn: [ConnectRoute, DisconnectRoute, JoinRoute, MoveRoute, EmoteRoute]
 ```
 
-**Paso 4. Despliega y prueba.**
+### 5.4 Despliega y prueba
 
 ```bash
 sam deploy
@@ -454,9 +471,12 @@ sam deploy
 Espera 1 o 2 minutos después del deploy (API Gateway tarda en publicar las rutas nuevas; mientras tanto puedes
 seguir viendo `Forbidden`), **recarga las dos ventanas** y presiona un emoji: debe flotar en las dos.
 
-### 5.2 Reto 2: revancha (reinicia el tablero)
+## 6. Lab 4: revancha (una ruta nueva que cambia el juego)
 
-Los mismos 4 pasos, con `rematch` en lugar de `emote`:
+Los mismos 4 pasos del Lab 3, con `rematch` en lugar de `emote`. La diferencia: aquí no solo reenvías un mensaje,
+también modificas la partida en DynamoDB.
+
+### 6.1 Crea el archivo
 
 ```bash
 mkdir -p src/rematch
@@ -493,7 +513,7 @@ def handler(event, context):
 <summary>Ver la solución de rematch.py</summary>
 
 ```python
-"""Reto extra - ruta "rematch": reinicia el tablero cuando la partida ya terminó.
+"""Lab 4 - ruta "rematch": reinicia el tablero cuando la partida ya terminó.
 
 Mensaje que llega:  {"action": "rematch"}
 Mensaje que sale:   {"type": "state", ...} a AMBOS jugadores.
@@ -541,10 +561,12 @@ def handler(event, context):
 
 </details>
 
+### 6.2 Agrega las 4 piezas al template
+
 En `template.yaml`, pega este bloque también antes de la línea `# Lo que imprime`:
 
 ```yaml
-  # ── Reto extra - rematch: {"action":"rematch"} ─────────────────────────────
+  # ── Lab 4 - rematch: {"action":"rematch"} ─────────────────────────────
   # Reinicia el tablero cuando la partida terminó. Son las mismas 4 piezas que move.
   RematchFunction:
     Type: AWS::Serverless::Function
@@ -579,20 +601,24 @@ En `template.yaml`, pega este bloque también antes de la línea `# Lo que impri
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${GatoApi}/*
 ```
 
-Y deja el `DependsOn` así:
+### 6.3 Agrega la ruta al `DependsOn`
+
+Déjalo así:
 
 ```yaml
     DependsOn: [ConnectRoute, DisconnectRoute, JoinRoute, MoveRoute, RematchRoute, EmoteRoute]
 ```
+
+### 6.4 Despliega y prueba
 
 Despliega con `sam deploy`, espera 1 o 2 minutos, recarga, termina una partida y presiona **Revancha**.
 
 > ¿Algo falla? `sam deploy` te dice si el template tiene un error (casi siempre es la indentación). Si el deploy pasa
 > pero el botón no hace nada, revisa los logs: `sam logs --stack-name scday-gato -n RematchFunction --tail`.
 
-### 5.3 Atajo: trae la solución con `git merge`
+## 7. ¿Te atrasaste? Trae la solución con `git merge`
 
-La rama `retos-solution` tiene todo resuelto: `move.py` del Lab 2, los dos retos y el template con sus rutas.
+La rama `retos-solution` tiene todo resuelto: `move.py` del Lab 2, las rutas de los Labs 3 y 4 y el template.
 
 ```bash
 git stash                          # guarda tus cambios (si no cambiaste nada, no pasa nada)
@@ -603,9 +629,9 @@ sam deploy
 Espera 1 o 2 minutos, recarga las dos ventanas y prueba los emotes y la revancha. Después compara con lo que
 habías hecho: `git stash show -p` muestra tus cambios guardados.
 
-## 6. Limpieza
+## 8. Limpieza
 
-Borra todo lo que creaste (no se cobra nada después):
+Antes de irte, borra todo lo que creaste (el stack completo: API, Lambdas y tablas):
 
 ```bash
 sam delete --no-prompts
