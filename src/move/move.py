@@ -45,6 +45,7 @@ def handler(event, context):
         return {"statusCode": 400}
 
     # 3. Enviamos el nuevo estado a los dos jugadores (broadcast)
+    # Igual que en join.py: aquí seat es la ficha de quien RECIBE, no la de quien jugó.
     for seat, seat_key in (("X", "player_x"), ("O", "player_o")):
         player_connection = game.get(seat_key)
         if not player_connection:
