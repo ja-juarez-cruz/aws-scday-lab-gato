@@ -419,7 +419,7 @@ luego `/`) y pega este bloque **justo antes** de la línea que empieza con `# Lo
 y el `RouteKey`.
 
 ```yaml
-  # ── Lab 3 - emote: {"action":"emote","emoji":"🔥"} ─────────────────────
+  # ── Lab 3 - emote: {"action":"emote","emoji":"🔥"} ──────────────────────────
   # Reenvía un emoji a los dos jugadores. Es puro broadcast, sin reglas del juego.
   EmoteFunction:
     Type: AWS::Serverless::Function
@@ -566,7 +566,7 @@ def handler(event, context):
 En `template.yaml`, pega este bloque también antes de la línea `# Lo que imprime`:
 
 ```yaml
-  # ── Lab 4 - rematch: {"action":"rematch"} ─────────────────────────────
+  # ── Lab 4 - rematch: {"action":"rematch"} ──────────────────────────────────
   # Reinicia el tablero cuando la partida terminó. Son las mismas 4 piezas que move.
   RematchFunction:
     Type: AWS::Serverless::Function
