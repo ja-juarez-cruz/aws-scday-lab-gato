@@ -56,8 +56,22 @@ La única regla: **al terminar, corre `sam delete`** ([paso 8](#8-limpieza)). As
 
 ## 1. Abre CloudShell
 
-En la consola de AWS, selecciona la región **N. Virginia (us-east-1)** y abre **CloudShell** (icono `>_` arriba a la derecha).
+En la consola de AWS, selecciona la región **Ohio (us-east-2)** y abre **CloudShell** (icono `>_` arriba a la derecha).
 CloudShell ya trae AWS CLI, SAM CLI, git, Python y Node.js: no instalas nada.
+
+Comprueba la región; debe decir `us-east-2`:
+
+```bash
+echo $AWS_REGION
+```
+
+> **¿Por qué Ohio?** Si creaste tu cuenta con el registro nuevo de AWS (con Google, GitHub o Apple y sin tarjeta), tu
+> cuenta solo puede crear recursos en la región que AWS le asignó según tu país: para México y toda América es Ohio.
+> En otra región, `sam deploy` falla con `AccessDenied ... service control policy`. Las cuentas de siempre también
+> funcionan en Ohio, así que todos usamos la misma.
+>
+> Si tu dirección es de Europa o Asia-Pacífico, tu región es Estocolmo (`eu-north-1`) o Sídney (`ap-southeast-2`):
+> selecciónala en la consola y despliega con `sam deploy --region <tu-región>`.
 
 ## 2. Clona el repo
 
@@ -192,7 +206,7 @@ Es un editor como VS Code dentro del navegador: copias y pegas con el mouse, des
 y te marca en rojo los errores. En CloudShell, genera el link directo a tu función:
 
 ```bash
-echo "https://us-east-1.console.aws.amazon.com/lambda/home?region=us-east-1#/functions/$(aws cloudformation describe-stack-resource \
+echo "https://us-east-2.console.aws.amazon.com/lambda/home?region=us-east-2#/functions/$(aws cloudformation describe-stack-resource \
   --stack-name scday-gato --logical-resource-id MoveFunction \
   --query StackResourceDetail.PhysicalResourceId --output text)?tab=code"
 ```

@@ -49,7 +49,7 @@ Después se corren las pruebas en cada rama.
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/pytest                    # en main: 6 pasan y 2 fallan (esperado); en las soluciones pasan todas
 .venv/bin/cfn-lint template.yaml
-sam deploy                          # usa samconfig.toml: stack scday-gato, us-east-1
+sam deploy                          # usa samconfig.toml: stack scday-gato, us-east-2 (Ohio)
 sam delete --no-prompts
 ```
 
