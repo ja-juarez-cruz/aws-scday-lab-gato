@@ -16,7 +16,16 @@ ROOM_PATTERN = re.compile(r"[A-Z0-9]{3,12}")
 
 
 def take_seat(room: str, connection_id: str) -> str | None:
-    """Intenta sentarse como X y, si está ocupada, como O. None = sala llena."""
+    """Intenta sentarse como X y, si está ocupada, como O. None = sala llena.
+
+    seat es la ficha ("X"/"O") y seat_key el atributo de Games donde se guarda el
+    connection_id de esa ficha ("player_x"/"player_o").
+
+    El primero que llega crea la fila de la sala: if_not_exists pone el tablero vacío y
+    el turno de X solo si todavía no existen. El segundo solo ocupa el asiento libre.
+    La condición attribute_not_exists(#seat) hace que, si dos llegan al mismo tiempo,
+    solo uno se quede con cada asiento.
+    """
     for seat, seat_key in (("X", "player_x"), ("O", "player_o")):
         try:
             games_table.update_item(

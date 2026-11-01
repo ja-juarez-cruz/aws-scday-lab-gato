@@ -3,6 +3,11 @@
 Mensaje que llega:  {"action": "move", "cell": 4}
 Mensaje que sale:   {"type": "state", ...} a AMBOS jugadores (broadcast),
                     o {"type": "error", ...} solo a quien se equivocó (unicast).
+
+Recorrido de los datos:
+    connection_id (quien jugó) -> connection {room, seat} -> game de esa room
+    -> apply_move marca la casilla en game["board"] -> save_game lo guarda solo si el
+    board sigue siendo previous_board -> el nuevo game se envía a player_x y player_o.
 """
 
 import json
