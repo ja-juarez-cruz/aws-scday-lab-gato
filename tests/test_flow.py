@@ -9,7 +9,7 @@ import pytest
 from moto import mock_aws
 
 os.environ.update({
-    "AWS_DEFAULT_REGION": "us-east-1",
+    "AWS_DEFAULT_REGION": "us-east-2",
     "AWS_ACCESS_KEY_ID": "test",
     "AWS_SECRET_ACCESS_KEY": "test",
     "GAMES_TABLE": "games",
