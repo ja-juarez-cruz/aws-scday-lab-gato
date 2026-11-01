@@ -2,9 +2,9 @@ version = 0.1
 
 [default.global.parameters]
 stack_name = "scday-gato"
+region = "us-east-2"
 
 [default.deploy.parameters]
-region = "us-east-1"
 resolve_s3 = true
 s3_prefix = "scday-gato"
 capabilities = "CAPABILITY_IAM"
